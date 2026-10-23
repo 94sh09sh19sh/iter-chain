@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "delimiter": ";;;",
+  "defaultDynamicMax": 1,
+  "maxRounds": 20,
+  "summaryMaxChars": 1500,
+  "launchModes": ["auto"],
+  "terminal": "wt",
+  "debug": false
+}
