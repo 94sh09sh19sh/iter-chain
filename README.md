@@ -22,6 +22,7 @@
 - 每輪額外花：注入的規則約 150 token、上一輪摘要、寫輪次檔一次。
 
 ## 設定（config.json）
+- 個人設定寫在同目錄的 `config.local.json`，只寫要改的鍵，會蓋過 `config.json`；更新工具時不會被覆蓋，也不會進 repo。
 - `enabled`：總開關。
 - `delimiter`：分隔字串。
 - `defaultDynamicMax`：`;;;?` 沒寫數字時的輪數（預設 1）。
@@ -38,7 +39,7 @@
 - `node cli.js cancel <鏈 id|all>`：不再接續；進行中的那一輪不受影響。
 
 ## 停用
-- 暫停：`config.json` 的 `enabled` 改成 `false`。
+- 暫停：`config.local.json` 寫 `{"enabled": false}`。
 - 移除：刪掉 `~/.claude/settings.json` 裡指向 `iter-chain/hook.js` 的 UserPromptSubmit、SessionStart、Stop 三個 hook。
 
 ## 已知限制

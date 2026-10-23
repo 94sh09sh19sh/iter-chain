@@ -1,0 +1,8 @@
+{
+  "target": "iter-chain",
+  "hooks": [
+    { "event": "UserPromptSubmit", "script": "hook.js", "timeout": 10 },
+    { "event": "SessionStart", "script": "hook.js", "timeout": 30 },
+    { "event": "Stop", "script": "hook.js", "timeout": 10 }
+  ]
+}
