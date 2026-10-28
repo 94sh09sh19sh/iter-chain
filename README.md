@@ -48,3 +48,4 @@
 - 某一輪沒做完（模型卡住、要你決定）就不會寫輪次檔，鏈會停在那裡；處理完請它寫輪次檔，或用 `next`。
 - 輪次檔的「## 下一輪」漏寫時當作「無」處理。
 - 跟 crosscheck 並用：本輪指令含觸發字串時，完成規則會要求 done 之後才寫輪次檔。crosscheck job 停在 running（沒跑 done）時鏈會停住；用 crosscheck 的 `cancel` 收掉 job，再用 `next` 接續。
+- 中斷的那一輪改由手動開的 session 接續時，鏈不會自動往下排，見 `BUGS.md`。
