@@ -41,6 +41,7 @@ function rules(chain, r, cc = usesCrosscheck(r.instruction)) {
     '條列 10 行內：做了什麼、改了哪些檔、還沒解決的問題',
   ];
   if (next?.type === 'dyn') lines.push('## 下一輪', `一段可以直接執行的下一輪指令${next.guide ? `（使用者給的方向：${next.guide}）` : ''}；已經沒有值得做的就只寫「無」`);
+  lines.push('中途停下要交接時，交接內容寫明接續的人做完要建立這個檔。');
   lines.push(next ? '沒做完不要建立這個檔。建立後工具會自動開新 session 做下一輪，你直接結束回覆，不用提這件事。' : '這是最後一輪；沒做完不要建立這個檔。');
   return lines.join('\n');
 }

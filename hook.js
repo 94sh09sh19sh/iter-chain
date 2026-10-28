@@ -76,13 +76,43 @@ function onSessionStart(input, cfg) {
   out({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: [C.contextFor(chain, r, cfg, note, Boolean(cc)), cc].filter(Boolean).join('\n\n') } });
 }
 
-// 每次回合結束都會觸發；只有本輪的輪次檔已經寫好才往下排，其他情況（中途停下、問問題）什麼都不做
-function onStop(input, cfg) {
+// 這個 session 登記過的那一輪，且輪次檔已寫好
+function ownRound(input) {
   const sess = L.readJson(L.sessionFile(input.session_id));
   const chain = sess && L.loadChain(sess.chainId);
-  if (!chain || chain.status !== 'running') return;
+  if (!chain || chain.status !== 'running') return null;
   const r = chain.rounds[chain.rounds.length - 1];
-  if (r.k !== sess.k || r.status !== 'running' || !fs.existsSync(L.roundFile(chain, r.k))) return;
+  if (r.k !== sess.k || r.status !== 'running' || !fs.existsSync(L.roundFile(chain, r.k))) return null;
+  return chain;
+}
+
+// 中斷的那一輪由使用者手動開的 session 接續時沒有登記（例：撞週額度，limit-relay 不接手）：
+// 同專案底下、最後一輪還沒完成、輪次檔卻已寫好的鏈，就由這個 session 認領
+function adopt(input) {
+  if (!input.cwd) return null;
+  const chain = L.listChains()
+    .filter((c) => c.status === 'running' && L.isInside(input.cwd, c.cwd))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .find((c) => {
+      const r = c.rounds[c.rounds.length - 1];
+      return ['running', 'launched'].includes(r.status) && fs.existsSync(L.roundFile(c, r.k));
+    });
+  if (!chain) return null;
+  const r = chain.rounds[chain.rounds.length - 1];
+  if (r.sid && r.sid !== input.session_id) r.prevSid = r.sid;
+  r.sid = input.session_id;
+  r.status = 'running';
+  L.saveChain(chain);
+  L.writeJson(L.sessionFile(input.session_id), { chainId: chain.id, k: r.k });
+  L.log(`[${chain.id}] 第 ${r.k} 輪輪次檔由未登記的 session ${String(input.session_id).slice(0, 8)} 寫好，認領後接續`);
+  return chain;
+}
+
+// 每次回合結束都會觸發；只有本輪的輪次檔已經寫好才往下排，其他情況（中途停下、問問題）什麼都不做
+function onStop(input, cfg) {
+  const chain = ownRound(input) || adopt(input);
+  if (!chain) return;
+  const r = chain.rounds[chain.rounds.length - 1];
   // 輪次檔提早寫了但 crosscheck 還沒 done：先不接續，等 done 之後的 Stop；本輪沒打觸發字串就不看（避免同 session 的舊 job 卡住）
   if (C.usesCrosscheck(r.instruction) && C.crosscheckRunning(input.session_id)) return L.log(`[${chain.id}] 第 ${r.k} 輪輪次檔已寫，crosscheck 還沒跑完，先不接續`);
   out({ systemMessage: C.advance(chain, cfg) });

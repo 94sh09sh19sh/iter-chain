@@ -92,6 +92,13 @@ function listChains() {
 
 const roundFile = (chain, k) => path.join(chain.dir, `round-${k}.md`);
 
+// dir 是 base 本身或它底下的資料夾；Windows 不分大小寫
+function isInside(dir, base) {
+  const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const rel = path.relative(norm(base), norm(dir));
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 // 把「A ;;; B ;;;?3 方向 ;;;*2」拆成第 1 輪和之後排定的各輪；沒有分隔字串就回傳 null
 //   ;;;      下一段是固定指令
 //   ;;;?N    接下來最多 N 輪看上一輪結果決定，後面的文字是方向（可省略）
@@ -186,6 +193,6 @@ function openTab(chain, k, cfg) {
 module.exports = {
   ROOT, STATE, DIRS, LOG_FILE, RELAY_JOBS, DEFAULT_CONFIG,
   ensureDirs, readJson, writeJson, loadConfig, log, readStdin,
-  chainFile, sessionFile, loadChain, saveChain, listChains, roundFile,
+  chainFile, sessionFile, loadChain, saveChain, listChains, roundFile, isInside,
   parsePrompt, section, isNone, prepareDir, openTab,
 };

@@ -15,6 +15,7 @@
 3. Stop：只有輪次檔寫好才往下排；中途停下或在問你問題時什麼都不做。本輪指令有 crosscheck 觸發字串、job 還沒 done 時也先不排，等 done 之後那次 Stop 再排（本輪沒打觸發字串就不看 job，同 session 的舊 job 不會卡住鏈）。
 4. 開新的 Windows Terminal 分頁，用原本的權限模式啟動 `claude`；SessionStart 注入本輪指令、上一輪摘要和完成規則。
 5. 某一輪撞到限額時，limit-relay 照常接手；iter-chain 從 `LIMIT_RELAY_JOB` 認出是同一輪，接手的 session 做完寫好輪次檔，鏈就繼續。原 session 有還在跑的 crosscheck job 時，一併轉給接手的 session。
+   - limit-relay 沒接手時（例：撞週額度），自己開 session 接續也行：在同一個專案（或底下的資料夾）做完並寫好輪次檔，Stop 會認領這一輪再往下排。完成規則要求交接內容寫明這一點。
 6. `;;;?` 的方向會另起一行接在下一輪指令後面，所以方向裡的 crosscheck 觸發字串（例：`;;;?3 改善效能 %%2`）每輪都會生效。
 
 ## token 成本
@@ -48,4 +49,3 @@
 - 某一輪沒做完（模型卡住、要你決定）就不會寫輪次檔，鏈會停在那裡；處理完請它寫輪次檔，或用 `next`。
 - 輪次檔的「## 下一輪」漏寫時當作「無」處理。
 - 跟 crosscheck 並用：本輪指令含觸發字串時，完成規則會要求 done 之後才寫輪次檔。crosscheck job 停在 running（沒跑 done）時鏈會停住；用 crosscheck 的 `cancel` 收掉 job，再用 `next` 接續。
-- 中斷的那一輪改由手動開的 session 接續時，鏈不會自動往下排，見 `BUGS.md`。
