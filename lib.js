@@ -138,6 +138,40 @@ function parsePrompt(prompt, cfg) {
   return { first: parts[0].text, items: items.slice(0, cfg.maxRounds - 1) };
 }
 
+// 中途插入的輪次：前面補一段佔位再用 parsePrompt 拆，所以也能用 ;;;? ;;;* 排多輪
+function parseItems(text, cfg) {
+  return parsePrompt(`_ ${cfg.delimiter} ${text}`, { ...cfg, maxRounds: Infinity })?.items || null;
+}
+
+// 開頭就是分隔字串的訊息是改鏈指令（parsePrompt 不會把它當成新鏈）：
+//   ;;;          列出各輪
+//   ;;;+ 文字    補充指令，之後每輪都看得到
+//   ;;;- 3 5-7   刪除未執行的輪次
+//   ;;;@3 指令   插入成第 3 輪，原本的往後移；不寫數字就加在最後（不屬於鏈的 session 會轉成鏈的第 1 輪）
+function parseEdit(prompt, cfg) {
+  const p = String(prompt).trim();
+  if (!p.startsWith(cfg.delimiter)) return null;
+  const rest = p.slice(cfg.delimiter.length).trim();
+  if (!rest) return { op: 'show' };
+  if (!/^[+\-@]/.test(rest)) return null;
+  let m;
+  if ((m = rest.match(/^\+\s*([\s\S]+)$/))) return { op: 'note', text: m[1].trim() };
+  if ((m = rest.match(/^-\s*([\d\s,、~-]+)$/))) {
+    const ks = [];
+    for (const t of m[1].split(/[\s,、]+/).filter(Boolean)) {
+      const r = t.match(/^(\d+)(?:[-~](\d+))?$/);
+      if (!r) return { op: 'usage' };
+      for (let k = Number(r[1]); k <= Number(r[2] || r[1]); k++) ks.push(k);
+    }
+    return ks.length ? { op: 'drop', ks } : { op: 'usage' };
+  }
+  if ((m = rest.match(/^@(\d*)\s*([\s\S]+)$/))) {
+    const items = parseItems(m[2].trim(), cfg);
+    return items ? { op: 'insert', k: m[1] ? Number(m[1]) : null, items } : { op: 'usage' };
+  }
+  return { op: 'usage' };
+}
+
 // 從輪次檔取出某個「## 標題」底下的內容
 function section(text, title) {
   const m = String(text).match(new RegExp(`^##\\s*${title}\\s*$([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`, 'm'));
@@ -194,5 +228,5 @@ module.exports = {
   ROOT, STATE, DIRS, LOG_FILE, RELAY_JOBS, DEFAULT_CONFIG,
   ensureDirs, readJson, writeJson, loadConfig, log, readStdin,
   chainFile, sessionFile, loadChain, saveChain, listChains, roundFile, isInside,
-  parsePrompt, section, isNone, prepareDir, openTab,
+  parsePrompt, parseItems, parseEdit, section, isNone, prepareDir, openTab,
 };

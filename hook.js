@@ -7,10 +7,33 @@ const C = require('./chain');
 
 const out = (obj) => process.stdout.write(JSON.stringify(obj));
 
+// 改鏈指令只改這個 session 所屬的鏈（取消掉的不算）；改別的鏈用 cli.js
+function ownChain(input) {
+  const sess = L.readJson(L.sessionFile(input.session_id));
+  const chain = sess && L.loadChain(sess.chainId);
+  return chain?.status === 'cancelled' ? null : chain;
+}
+
+// 改鏈指令直接在 hook 處理完並擋下，不送給模型、不花 token
+// 例外：不屬於鏈的單輪 session 打 ;;;@ 時轉成鏈的第 1 輪，要讓模型知道做完後寫輪次檔，所以不擋
+function onEdit(input, cmd, cfg) {
+  const chain = ownChain(input);
+  if (chain) return out({ decision: 'block', reason: C.edit(chain, cmd, cfg) });
+  if (cmd.op !== 'insert') return out({ decision: 'block', reason: `iter-chain：這個 session 不屬於迭代鏈；用 ${cfg.delimiter}@ 指令 轉成多輪，改別的鏈用 node ~/.claude/iter-chain/cli.js` });
+  if (cmd.k && cmd.k !== 2) return out({ decision: 'block', reason: `iter-chain：這個 session 是第 1 輪，插入的輪次只能從第 2 輪開始` });
+  start(input, cfg, { first: '原本的單輪對話（限額接手時照交接內容接續）', items: cmd.items.slice(0, cfg.maxRounds - 1) }, true);
+}
+
 // 使用者輸入含分隔字串時建立迭代鏈，這個 session 只做第 1 段
 function onUserPromptSubmit(input, cfg) {
+  const cmd = L.parseEdit(String(input.prompt || ''), cfg);
+  if (cmd) return input.cwd && onEdit(input, cmd, cfg);
   const plan = L.parsePrompt(String(input.prompt || ''), cfg);
-  if (!plan || !input.cwd) return;
+  if (plan && input.cwd) start(input, cfg, plan);
+}
+
+// 建立迭代鏈，這個 session 是第 1 輪；converted 表示由單輪 session 轉成的
+function start(input, cfg, plan, converted = false) {
   const id = `${Date.now().toString(36)}`;
   const chain = {
     id,
@@ -22,7 +45,7 @@ function onUserPromptSubmit(input, cfg) {
     total: 1 + plan.items.length,
     items: plan.items,
     pos: 0,
-    rounds: [{ k: 1, type: 'fixed', instruction: plan.first, sid: input.session_id, status: 'running', startedAt: Date.now() }],
+    rounds: [{ k: 1, type: 'fixed', instruction: plan.first, sid: input.session_id, status: 'running', startedAt: Date.now(), askedNext: plan.items[0].type === 'dyn', converted }],
     createdAt: Date.now(),
   };
   L.saveChain(chain);
@@ -59,6 +82,7 @@ function onSessionStart(input, cfg) {
   r.status = 'running';
   r.sid = input.session_id;
   r.startedAt = Date.now();
+  r.askedNext = C.asksNext(chain);
   L.saveChain(chain);
   L.writeJson(L.sessionFile(input.session_id), { chainId: chain.id, k: r.k });
   L.log(`[${chain.id}] 第 ${r.k} 輪由 session ${String(input.session_id).slice(0, 8)} 執行${note ? '（限額接手）' : ''}`);

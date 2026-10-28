@@ -1,10 +1,10 @@
-// iter-chain 管理指令：status、log、next、cancel
+// iter-chain 管理指令：status、log、next、cancel、note、drop、insert
 'use strict';
 const fs = require('fs');
 const L = require('./lib');
 const C = require('./chain');
 
-const [cmd = 'status', arg] = process.argv.slice(2);
+const [cmd = 'status', arg, ...rest] = process.argv.slice(2);
 const when = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '-');
 
 function status() {
@@ -14,7 +14,7 @@ function status() {
   if (!chains.length) return console.log('迭代鏈：無');
   for (const c of chains) {
     console.log(`- ${c.id}｜${c.status}｜最多 ${c.total} 輪｜${when(c.createdAt)}｜${c.cwd}`);
-    for (const r of c.rounds) console.log(`    第 ${r.k} 輪｜${r.type === 'dyn' ? '看結果' : '固定'}｜${r.status}｜${String(r.instruction).replace(/\s+/g, ' ').slice(0, 40)}`);
+    console.log(C.plan(c));
   }
 }
 
@@ -44,6 +44,16 @@ function cancel() {
   console.log(`已取消 ${n} 條迭代鏈（進行中的那一輪不受影響，只是不再接續）`);
 }
 
+// 跟 session 裡打 ;;;+ ;;;- ;;;@ 一樣，轉成同一套改鏈指令
+function editCmd(op) {
+  const c = L.loadChain(arg);
+  if (!c) return console.log(`找不到迭代鏈 ${arg}`);
+  const cfg = L.loadConfig();
+  const d = cfg.delimiter;
+  const text = op === 'insert' ? `${d}@${rest[0] === 'end' ? '' : rest[0]} ${rest.slice(1).join(' ')}` : `${d}${op === 'note' ? '+' : '-'} ${rest.join(' ')}`;
+  console.log(C.edit(c, L.parseEdit(text, cfg), cfg));
+}
+
 function log() {
   const n = Number(arg) || 30;
   try {
@@ -53,6 +63,6 @@ function log() {
   }
 }
 
-const cmds = { status, next, cancel, log };
+const cmds = { status, next, cancel, log, note: () => editCmd('note'), drop: () => editCmd('drop'), insert: () => editCmd('insert') };
 if (cmds[cmd]) cmds[cmd]();
-else console.log('用法：node cli.js [status|log [行數]|next <id>|cancel <id|all>]');
+else console.log('用法：node cli.js [status|log [行數]|next <id>|cancel <id|all>|note <id> <文字>|drop <id> <輪次…>|insert <id> <輪次|end> <指令>]');
