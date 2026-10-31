@@ -57,7 +57,7 @@ function summaryOf(chain, k, cfg) {
 // 限額接手的第 1 輪沒有使用者那則訊息，跟後面各輪一樣直接給本輪指令
 function contextFor(chain, r, cfg, note = '', cc = undefined) {
   const head = r.converted && !note
-    ? `[iter-chain] 使用者用 ${chain.delimiter}@ 把這個 session 改成迭代鏈 ${chain.id} 的第 1 輪（最多 ${chain.total} 輪）。第 1 輪就是這個 session 原本的工作，照常做完（已經做完就直接寫輪次檔）；後面各輪工具會排到新 session，不要動手。`
+    ? `[iter-chain] 使用者用 ${chain.delimiter}@ 把這個 session 改成迭代鏈 ${chain.id} 的第 1 輪（最多 ${chain.total} 輪）。第 1 輪就是這個 session 原本的工作，照常做完（已經做完就直接寫輪次檔，還在等使用者回覆就直接結束回覆）；後面各輪工具會排到新 session，不要動手。`
     : r.k === 1 && !note
     ?`[iter-chain] 使用者這則訊息是迭代鏈 ${chain.id}（最多 ${chain.total} 輪）。這個 session 只做第 1 段（第一個 ${chain.delimiter} 之前）；後面各段工具會排到新 session，不要動手，也不要先替後面幾輪做準備。`
     : `[iter-chain] 迭代鏈 ${chain.id} 第 ${r.k} 輪（最多 ${chain.total} 輪）。這個 session 是工具開的，只做本輪指令：\n${r.instruction}`;

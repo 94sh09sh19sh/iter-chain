@@ -180,6 +180,47 @@ function section(text, title) {
 
 const isNone = (t) => !t || /^(無|沒有|none)[。.]?$/i.test(t.trim());
 
+// 從逐字稿尾端看模型現在閒著還是在工作，以及最後一段回覆。turn_duration 是回合正常結束的紀錄，被 Esc 打斷則只有一則使用者訊息
+// 判斷不出來一律當工作中：頂多多等一次 Stop，不會在第 1 輪還沒做完時開下一輪
+function lastTurn(file, bytes = 1024 * 1024) {
+  let lines = [];
+  let cut = false;
+  try {
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(Math.min(size, bytes));
+    fs.readSync(fd, buf, 0, buf.length, size - buf.length);
+    fs.closeSync(fd);
+    lines = buf.toString('utf8').split('\n');
+    cut = size > bytes;
+    if (cut) lines.shift();
+  } catch {
+    return { idle: false, text: '' };
+  }
+  const records = lines.filter(Boolean).map((l) => {
+    try {
+      return JSON.parse(l);
+    } catch {
+      return null;
+    }
+  }).filter((r) => r && !r.isSidechain).reverse();
+  const reply = records.find((r) => r.type === 'assistant' && contentText(r));
+  const text = reply ? contentText(reply) : '';
+  for (const r of records) {
+    if (r.type === 'system' && r.subtype === 'turn_duration') return { idle: true, text };
+    if (r.type === 'system' && /^(stop_hook_summary|compact_boundary)$/.test(r.subtype)) return { idle: false, text };
+    if (r.type === 'assistant') return { idle: false, text };
+    if (r.type === 'user' && !r.isMeta && !/^<(command-name|local-command)/.test(contentText(r).trimStart())) return { idle: /^\[Request interrupted/.test(contentText(r)), text };
+  }
+  return { idle: !cut, text };
+}
+
+function contentText(r) {
+  const c = r.message?.content;
+  if (typeof c === 'string') return c;
+  return Array.isArray(c) ? c.filter((p) => p.type === 'text').map((p) => p.text).join('\n') : '';
+}
+
 // 專案底下的 .iter-chain 放輪次檔；git 專案寫進 .git/info/exclude，不會被提交
 function prepareDir(cwd, id) {
   const dir = path.join(cwd, '.iter-chain', id);
@@ -228,5 +269,5 @@ module.exports = {
   ROOT, STATE, DIRS, LOG_FILE, RELAY_JOBS, DEFAULT_CONFIG,
   ensureDirs, readJson, writeJson, loadConfig, log, readStdin,
   chainFile, sessionFile, loadChain, saveChain, listChains, roundFile, isInside,
-  parsePrompt, parseItems, parseEdit, section, isNone, prepareDir, openTab,
+  parsePrompt, parseItems, parseEdit, section, isNone, lastTurn, prepareDir, openTab,
 };

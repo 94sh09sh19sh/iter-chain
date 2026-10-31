@@ -14,14 +14,27 @@ function ownChain(input) {
   return chain?.status === 'cancelled' ? null : chain;
 }
 
+const block = (reason) => out({ decision: 'block', reason });
+
 // 改鏈指令直接在 hook 處理完並擋下，不送給模型、不花 token
-// 例外：不屬於鏈的單輪 session 打 ;;;@ 時轉成鏈的第 1 輪，要讓模型知道做完後寫輪次檔，所以不擋
 function onEdit(input, cmd, cfg) {
   const chain = ownChain(input);
-  if (chain) return out({ decision: 'block', reason: C.edit(chain, cmd, cfg) });
-  if (cmd.op !== 'insert') return out({ decision: 'block', reason: `iter-chain：這個 session 不屬於迭代鏈；用 ${cfg.delimiter}@ 指令 轉成多輪，改別的鏈用 node ~/.claude/iter-chain/cli.js` });
-  if (cmd.k && cmd.k !== 2) return out({ decision: 'block', reason: `iter-chain：這個 session 是第 1 輪，插入的輪次只能從第 2 輪開始` });
-  start(input, cfg, { first: '原本的單輪對話（限額接手時照交接內容接續）', items: cmd.items.slice(0, cfg.maxRounds - 1) }, true);
+  if (chain) return block(C.edit(chain, cmd, cfg));
+  if (cmd.op !== 'insert') return block(`iter-chain：這個 session 不屬於迭代鏈；用 ${cfg.delimiter}@ 指令 轉成多輪，改別的鏈用 node ~/.claude/iter-chain/cli.js`);
+  if (cmd.k && cmd.k !== 2) return block(`iter-chain：這個 session 是第 1 輪，插入的輪次只能從第 2 輪開始`);
+  convert(input, cmd, cfg);
+}
+
+// 單輪 session 轉成鏈的第 1 輪。指令不能讓模型看到，不然它會跟著做，上下文就混在一起了：
+// 模型還在工作：等回合結束 Stop 再叫它寫輪次檔（tellConverted）
+// 模型閒著：不會再有 Stop，這一輪視為做完，工具代寫輪次檔並排下一輪
+function convert(input, cmd, cfg) {
+  const chain = create(input, cfg, { first: '原本的單輪對話（限額接手時照交接內容接續）', items: cmd.items.slice(0, cfg.maxRounds - 1) }, true);
+  const { idle, text } = L.lastTurn(input.transcript_path);
+  if (!idle) return block(`iter-chain：迭代鏈 ${chain.id}，最多 ${chain.total} 輪${autoNote(chain, cfg)}；這則指令沒有送給模型，這個回合結束後才接續`);
+  chain.rounds[0].askedNext = false;
+  fs.writeFileSync(L.roundFile(chain, 1), text || '（單輪 session 轉成鏈，沒有回覆內容）');
+  block(C.advance(chain, cfg));
 }
 
 // 使用者輸入含分隔字串時建立迭代鏈，這個 session 只做第 1 段
@@ -32,8 +45,10 @@ function onUserPromptSubmit(input, cfg) {
   if (plan && input.cwd) start(input, cfg, plan);
 }
 
+const autoNote = (chain, cfg) => (cfg.launchModes.includes(chain.permissionMode) ? '，每輪完成後自動開新分頁' : `；權限模式 ${chain.permissionMode} 不會自動接續（要 ${cfg.launchModes.join('/')}）`);
+
 // 建立迭代鏈，這個 session 是第 1 輪；converted 表示由單輪 session 轉成的
-function start(input, cfg, plan, converted = false) {
+function create(input, cfg, plan, converted = false) {
   const id = `${Date.now().toString(36)}`;
   const chain = {
     id,
@@ -50,10 +65,14 @@ function start(input, cfg, plan, converted = false) {
   };
   L.saveChain(chain);
   L.writeJson(L.sessionFile(input.session_id), { chainId: id, k: 1 });
-  const auto = cfg.launchModes.includes(chain.permissionMode);
   L.log(`[${id}] 建立迭代鏈，最多 ${chain.total} 輪，權限模式 ${chain.permissionMode}，${chain.cwd}`);
+  return chain;
+}
+
+function start(input, cfg, plan) {
+  const chain = create(input, cfg, plan);
   out({
-    systemMessage: `iter-chain：迭代鏈 ${id}，最多 ${chain.total} 輪${auto ? '，每輪完成後自動開新分頁' : `；權限模式 ${chain.permissionMode} 不會自動接續（要 ${cfg.launchModes.join('/')}）`}`,
+    systemMessage: `iter-chain：迭代鏈 ${chain.id}，最多 ${chain.total} 輪${autoNote(chain, cfg)}`,
     hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: C.contextFor(chain, chain.rounds[0], cfg) },
   });
 }
@@ -83,6 +102,7 @@ function onSessionStart(input, cfg) {
   r.sid = input.session_id;
   r.startedAt = Date.now();
   r.askedNext = C.asksNext(chain);
+  r.told = true;
   L.saveChain(chain);
   L.writeJson(L.sessionFile(input.session_id), { chainId: chain.id, k: r.k });
   L.log(`[${chain.id}] 第 ${r.k} 輪由 session ${String(input.session_id).slice(0, 8)} 執行${note ? '（限額接手）' : ''}`);
@@ -132,9 +152,23 @@ function adopt(input) {
   return chain;
 }
 
+// 工作中轉成鏈的第 1 輪：模型不知道要寫輪次檔，回合結束時讓它繼續並告訴它，只講一次（還在等使用者回覆時它會直接結束，規則留在上下文）
+function tellConverted(input, cfg) {
+  const sess = L.readJson(L.sessionFile(input.session_id));
+  const chain = sess && L.loadChain(sess.chainId);
+  const r = chain?.rounds[chain.rounds.length - 1];
+  if (chain?.status !== 'running' || !r.converted || r.told || r.k !== sess.k || r.status !== 'running') return false;
+  r.told = true;
+  L.saveChain(chain);
+  block(C.contextFor(chain, r, cfg));
+  return true;
+}
+
 // 每次回合結束都會觸發；只有本輪的輪次檔已經寫好才往下排，其他情況（中途停下、問問題）什麼都不做
 function onStop(input, cfg) {
-  const chain = ownRound(input) || adopt(input);
+  let chain = ownRound(input);
+  if (!chain && tellConverted(input, cfg)) return;
+  chain ||= adopt(input);
   if (!chain) return;
   const r = chain.rounds[chain.rounds.length - 1];
   // 輪次檔提早寫了但 crosscheck 還沒 done：先不接續，等 done 之後的 Stop；本輪沒打觸發字串就不看（避免同 session 的舊 job 卡住）
